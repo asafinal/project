@@ -1,0 +1,349 @@
+(function ($, Drupal) {
+
+  var arrayFrom = Function.prototype.call.bind(Array.prototype.slice);
+
+  /**
+   * Emits view event from utag with given parameters.
+   *
+   * @param linkEvent
+   *   Name of the event.
+   * @param formAction
+   *   The action made by the user either “form_opened” or “form_submitted”.
+   * @param formCategory
+   *   The value from the query string form_category. For example "contact-us".
+   * @param formType
+   *   Type of the form. For example ‘inline’ or ‘overlay’.
+   */
+  function emitUtagView(linkEvent, formAction, formCategory, formType) {
+    if (typeof utag !== 'undefined' && utag !== null) {
+      utag.view(
+        {
+          linkEvent: linkEvent,
+          FormAction: formAction,
+          FormCategory: formCategory,
+          FormType: formType
+        }
+      );
+    }
+  }
+
+  /**
+   * Prepends tertiary CTA icon to the given element.
+   *
+   */
+  function prependTertiaryIcon() {
+    var $this = $(this);
+    if ($this.hasClass('modified')) {
+      return;
+    }
+
+    var mktoFormNotification = $this.closest('.mktoFormNotification');
+    var text = $('<div/>').html(mktoFormNotification.html().replace(/<br>/g,'\n')).text();
+    $this.prepend(
+      '<span class="cta-icon">' +
+      '<span class="cta-icon-background"></span>' +
+      '<span class="hds-icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg" focusable="false"><path d="M10.1701 8L5.59009 3.41L7.00009 2L13.0001 8L7.00009 14L5.59009 12.59L10.1701 8Z"></path></svg></span>' +
+      '</span>' +
+      '<span class="cta-label">' +
+      text.replace(/(?:\r\n|\r|\n)/g, '<br>') +
+      '</span>'
+    ).addClass('cta cta--tertiary modified cta--size-big cta--with-icon');
+    mktoFormNotification.children('br').remove();
+    mktoFormNotification.contents().filter(function () {
+      return this.nodeType === Node.TEXT_NODE;
+    }).remove();
+  }
+
+  /**
+   * Sets paramaters to the url and pushes the state to the history.
+   *
+   * Updates the existing paramaters if needed and removes the hidden ones.
+   *
+   * @param {array} paramsList
+   *   Associative array of parameters to set.
+   * @param {array} allParamsList
+   *   List of all parameters for the marketo form.
+   *
+   * TODO: Remove allParamsList parameter if all of the marketo inline nodes
+   *   have the same parameters list.
+   */
+  function setParams(paramsList, allParamsList) {
+    var params = new URLSearchParams(window.location.search);
+    var paramsChanged = false;
+
+    for (var key in paramsList) {
+      if (params.get(key) !== paramsList[key]) {
+        params.set(key, paramsList[key]);
+        paramsChanged = true;
+      }
+    }
+
+    for (var i = 0; i < allParamsList.length; i++) {
+      if (!(allParamsList[i] in paramsList)) {
+        params.delete(allParamsList[i]);
+        paramsChanged = true;
+      }
+    }
+
+    if (!paramsChanged) {
+      return;
+    }
+
+    setUrl(params);
+  }
+
+  /**
+   * Removes parameters from the url and pushes the state to the history.
+   *
+   * @param paramsList
+   *   Array of parameter keys to remove.
+   */
+  function deleteParams(paramsList) {
+    var params = new URLSearchParams(window.location.search);
+    var paramsRemoved = true;
+
+    for (var i = 0; i < paramsList.length; i++) {
+      if (params.get(paramsList[i])) {
+        paramsRemoved = false;
+        params.delete(paramsList[i]);
+      }
+    }
+
+    if (params.get('cta_id') || paramsRemoved) {
+      return;
+    }
+
+    setUrl(params);
+  }
+
+  /**
+   * Sets the url to the current one with additional parameters from the param.
+   *
+   * @param params
+   *   Associative array of the new parameters.
+   */
+  function setUrl(params) {
+    var paramsString = '';
+    if (params.toString()) {
+      paramsString = '?' + params.toString();
+    }
+
+    var newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + paramsString;
+    window.history.pushState({path: newUrl}, '', newUrl);
+  }
+
+  Drupal.behaviors.marketoForm = {
+    loaded: false,
+    attach: function (context, settings) {
+      if (typeof settings.marketo_form_field == 'undefined' || typeof settings.marketo_form_field.marketoForms === 'undefined' || settings.marketo_form_field.marketoForms.length === 0) {
+        return;
+      }
+
+      // Prevent calling Marketo loadForm twice.
+      if (this.loaded || $('.marketo-form', context).length <= 0) {
+        return;
+      }
+
+      var mktoFormConfig = {
+        instanceHost: settings.marketo_form_field.instanceHost,
+        munchkinId: settings.marketo_form_field.munchkinId,
+      };
+
+      var formCount = 0;
+      var lastFocusedparagraphId = 0;
+      var lastFocusedFormCategory = '';
+
+      /**
+       * Check if the focus is on the marketo inline form or any of its child.
+       *
+       * If that's not the case, then remove all parameters related to the
+       * marketo form.
+       */
+      function bindClickEvent() {
+        $('body').once('marketo-inline-form-body-click-handler').click(function (e) {
+          if ($(e.target).closest(".marketo-form").length === 0) {
+            deleteParams(settings.marketo_form_field.url_params_list);
+            lastFocusedparagraphId = 0;
+          }
+        });
+      }
+
+      $('.marketo-form').each(function () {
+        formCount++;
+        var randomString = "_inline_" + formCount;
+        var $originalFormId = $(this).data('marketo-id');
+        var $paragraphId = $(this).data('paragraph-id');
+        var newFormId = $originalFormId + randomString;
+
+        $(this).find('form').attr('id', newFormId);
+
+        var currentSettings = settings.marketo_form_field.marketoForms[$originalFormId][$paragraphId];
+        var $success = currentSettings.successHTML;
+
+        $(this).find('.mtoForm-inline').focusin(function (e) {
+          var focusedparagraphId = $(e.target).closest('.marketo-form').attr('data-paragraph-id');
+
+          // Emit utag 'form_opened' on inline form focus.
+          if (lastFocusedparagraphId === 0 || lastFocusedparagraphId !== focusedparagraphId) {
+            lastFocusedparagraphId = focusedparagraphId;
+            lastFocusedFormCategory = currentSettings['url_params']['form_category'];
+
+            // Set detailed_source dynamically.
+            currentSettings['url_params'].detailed_source = Drupal.behaviors.updateMarketoLinksAttribute.getDetailedSource();
+            setParams(currentSettings['url_params'], settings.marketo_form_field.url_params_list);
+
+            emitUtagView('form_detail', 'form_opened', currentSettings['url_params']['form_category'], 'inline');
+          }
+        });
+
+        MktoForms2.loadForm(
+          mktoFormConfig.instanceHost,
+          mktoFormConfig.munchkinId,
+          $originalFormId,
+          function (form) {
+            var $form = $('form#' + newFormId);
+
+            form.render($form);
+            form.setValues(currentSettings.values);
+            var $parent = $('button[type="submit"]').parent();
+
+            // Clear all button classes that break css styles.
+            if ($parent.hasClass('mktoButtonWrap')) {
+              $parent.attr('class', 'mktoButtonWrap');
+            }
+
+            // Add tertiary icon SVG to notification box.
+            $form.find('.mktoFormNotification').each(function () {
+              var $this = $(this);
+              $this.find('a').each(function () {
+                prependTertiaryIcon.call(this);
+              });
+
+              $this.addClass('text-long modified');
+            });
+
+            // Add tertiary icon SVG to notification box on form change.
+            $form.change(function () {
+              $form.find('.mktoFormNotification').each(function () {
+                var $this = $(this);
+                $this.find('a').each(function () {
+                  prependTertiaryIcon.call(this);
+                });
+
+                $this.addClass('text-long modified');
+              });
+            });
+
+            form.onSuccess(function () {
+              var $form = $('form#' + newFormId);
+              var $marketoInline = $form.closest('.marketo-form[data-marketo-id="' + $originalFormId + '"]');
+              var $successSelector = $marketoInline;
+              var headerHeight = parseInt($('.layout-container').css('padding-top'));
+
+              $marketoInline.addClass('form-succeed');
+
+              form.getFormElem().hide();
+
+              $successSelector.html($success);
+
+              // Update animated elements.
+              $successSelector.find('.with-animation').hereAnimateComponents();
+
+              emitUtagView('form_detail', 'form_submitted', currentSettings['url_params']['form_category'], 'inline');
+
+              window.scrollTo(0, ($marketoInline.offset().top) - headerHeight);
+              $('.cta--marketo-reload').click(function () {
+                location.reload();
+              });
+              return false;
+            });
+          });
+      }).promise().done(function () {
+        bindClickEvent();
+      });
+
+      var count = 0;
+      MktoForms2.whenRendered(function (form) {
+        var formEl = form.getFormElem()[0];
+        arrayFrom(formEl.querySelectorAll("label[for]")).forEach(function (labelEl) {
+          var forEl = formEl.querySelector('[id="' + labelEl.htmlFor + '"]');
+          if (forEl) {
+            labelEl.htmlFor = forEl.id = forEl.id + '_' + count++;
+          }
+        });
+        // Remove duplicate ID.
+        var $mktoStyleLoaded = $('#mktoStyleLoaded');
+        if ($mktoStyleLoaded.length) {
+          $mktoStyleLoaded.remove();
+        }
+
+        var $leadGen = $(formEl.closest('.lead-generation'));
+
+        if ($leadGen) {
+        $leadGen.trigger('here-lead-gen-background-update');
+        }
+      });
+
+      MktoForms2.whenReady(function (form) {
+        var $form = form.getFormElem();
+
+        var $leadGen = $form.closest('.lead-generation');
+        if ($leadGen.length === 0) {
+          return;
+        }
+
+        // Remove the external stylesheets.
+        var links = window.document.getElementsByTagName('link');
+        $(links).each(function () {
+          var thisLinkElement = $(this);
+          var thisLinkURL = thisLinkElement.attr('href');
+          if (thisLinkURL.indexOf('marketo.com') > 1 || thisLinkURL.indexOf('website.webforms-here.com') > 1) {
+            thisLinkElement.remove();
+          }
+        });
+        // And the inline styles.
+        $form.find('style').remove();
+        // And the style attributes.
+        $form.find('[style]').removeAttr('style');
+
+        // Remove custom form styles.
+        $('head').find('style').each(function () {
+          var $this = $(this);
+          if ($this.text().indexOf('mktoForm') > 0) {
+            $this.remove();
+          }
+        });
+
+        // Add classes to checkboxes.
+        $form.find('.mktoCheckboxList').each(function () {
+          var $this = $(this);
+          if ($this.find('input').length === 1) {
+            return;
+          }
+
+          $this.find('label').addClass('multiple');
+        });
+
+        // Hide empty labels.
+        $form.find('label').each(function () {
+          var $this = $(this);
+          if ($this.text() === '*') {
+            $this.addClass('empty-label');
+          }
+        });
+
+        // Button styling.
+        var $button = $form.find('.mktoButton');
+        var buttonText = $button.text();
+
+        $button.html('<span class="cta-background"></span><span class="cta-content"><span class="cta-label">' + buttonText + '</span></span>');
+        $button.addClass('cta cta--button cta--primary cta--with-label cta--size-big');
+
+        $form.addClass('ready');
+      });
+
+      this.loaded = true;
+    }
+  };
+
+}(jQuery, Drupal));

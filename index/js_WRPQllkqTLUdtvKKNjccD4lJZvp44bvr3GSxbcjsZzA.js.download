@@ -1,0 +1,199 @@
+/**
+ * @file
+ * Page anchoring logic.
+ */
+
+(function ($, Drupal) {
+
+  /**
+   * Gets fixed target if the element needs it.
+   *
+   * @param {jQuery} $target
+   *   Target element.
+   *
+   * @returns {jQuery}
+   *   Fixed target element.
+   */
+  function getFixedTarget($target) {
+    if ($target.hasClass('flexible-cards-tabs__content--item')) {
+      return $target.closest('.flexible-cards-tabs');
+    }
+
+    return $target;
+  }
+
+  /**
+   * Scrolls viewport to the target anchor.
+   */
+  function scroll_to_anchor() {
+    if (location.hash) {
+      var $body = $('body');
+      var $target = $('.anchorable[data-anchor="' + $.escapeSelector(location.hash) + '"], ' + location.hash);
+
+      if ($target.length > 0) {
+        $target = getFixedTarget($target);
+        var targetOffset = $target.offset().top;
+
+        if (Drupal.utility.isTabletS() || Drupal.utility.isMobile()) {
+          // Target offset has to be calculated relatively to the scroll position.
+          // It's caused by noScroll(), as <html> gets minus top property.
+          targetOffset = $target.offset().top - $body.offset().top + $(window).scrollTop();
+        }
+
+        var bodyPadding = parseInt($body.css('padding-top'));
+        var menuHeight = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--navigation-height')) || 0;
+
+        // If mobile menu is open close it and then scroll the page.
+        var scrollTimeout = 0;
+        if ($body.hasClass('mobile-menu')) {
+          scrollTimeout = 310;
+          Drupal.navigation.closeMobileMenu();
+        }
+
+        setTimeout(function () {
+          $('html, body').animate({
+            scrollTop: targetOffset - bodyPadding - menuHeight,
+          }, 1);
+        }, scrollTimeout);
+
+        // Open accordion item if this is the target.
+        if ($target.hasClass('accordion-item')) {
+          open_accordion($target, false);
+        }
+
+        if ($target.hasClass('accordion')) {
+          open_accordion($target, true);
+        }
+
+        if ($target.hasClass('flexible-cards-tabs__content--item')) {
+          open_flexible_cards_tab($target);
+        }
+
+        if ($target.hasClass('carousel-panel')) {
+          swipe_carousel($target);
+        }
+
+        play_video($target);
+      }
+    }
+  }
+
+  /**
+   * Opens up single accordion item or first accordion item in a module if no active class is present.
+   *
+   * @param {jQuery} $accordion
+   *   Accordion item.
+   * @param {boolean} first_item
+   *   Flag if only the first item should be opened.
+   */
+  function open_accordion($accordion, first_item) {
+    if (first_item) {
+      $accordion.find('.accordion-item:first-child:not(.active) .accordion__heading-wrapper').click();
+    }
+    else {
+      if (!$accordion.hasClass('active')) {
+        $accordion.find('.accordion__heading-wrapper').click();
+      }
+    }
+  }
+
+  /**
+   * Opens up Flexible Cards tab item.
+   *
+   * @param {jQuery} $flexible_cards_tab
+   *   Flexible Cards tab item.
+   */
+  function open_flexible_cards_tab($flexible_cards_tab) {
+    var $tab = $flexible_cards_tab.closest('.flexible-cards-tabs').find('[data-tab-index="' + $flexible_cards_tab.index() + '"]');
+
+    if ($tab.length !== 0) {
+      $tab.click();
+    }
+  }
+
+  /**
+   * Swipe carousel to specific slide.
+   *
+   * @param {jQuery} $carouselPanel
+   *   Carousel panel.
+   */
+  function swipe_carousel($carouselPanel) {
+    // Timeout to let carousel init properly.
+    setTimeout(function () {
+      var index = $carouselPanel.data('swiper-slide-index');
+      $carouselPanel.parents('.swiper-container').trigger('forceSlideChange', [index]);
+    }, 1500);
+  }
+
+  /**
+   * Check if target has a cta and if param is present play the video.
+   *
+   * @param {jQuery} $target
+   */
+  function play_video($target) {
+    var param = 'play-video';
+
+    // Play video if the "play-video" param is present in URL.
+    var url = window.location.href;
+    if (url.indexOf('?' + param) !== -1 || url.indexOf('&' + param) !== -1) {
+      setTimeout(function () {
+        $target.find('.play-video-button, .cta-video-button').click();
+      }, 500);
+    }
+  }
+
+  window.addEventListener('load', function () {
+    // Add slight delay on page load for carousel and such to initialize.
+    setTimeout(function () {
+      scroll_to_anchor();
+    }, 100);
+  });
+  window.addEventListener('hashchange', scroll_to_anchor);
+
+  // Scroll to the anchor destination on the second click on the link,
+  // when hashchange event isn't triggered.
+  Drupal.behaviors.scrollToAnchorOnClick = {
+    attach: function (context) {
+      $('a', context).on('click', function () {
+        if (!window.location.hash) {
+          return;
+        }
+
+        // Remove the current url part from href in case the target anchor is on the same page.
+        var href = $(this).attr('href').replace(window.location.pathname, '');
+
+        if (window.location.hash === href) {
+          scroll_to_anchor();
+        }
+      });
+    }
+  };
+
+})(jQuery, Drupal);
+;
+/**
+ * @file
+ * Behaviors for HERE Language Switcher.
+ */
+
+(function ($, Drupal) {
+
+  /**
+   * HERE Language Switcher general behavior.
+   */
+  Drupal.behaviors.hereLanguageSwitcher = {
+    attach: function (context) {
+      $('.language-switcher', context).once('language-switcher').each(function () {
+        var $languageSwitcher = $(this);
+        $languageSwitcher.find('.language-switcher__current-language a').click(function (e) {
+          e.preventDefault();
+          $languageSwitcher.toggleClass('open');
+        });
+      });
+    }
+  };
+
+})(jQuery, Drupal);
+;
+"use strict";!function(r,o){function t(o){this.settings={contentSelector:".footer-column__content",contentContainerSelector:".footer-column__content-container",toggleSelector:".footer-column__toggle",footerSelector:".footer",footerColumnSelector:".footer-column"},this.$footerColumn=o,this.$footer=o.closest(this.settings.footerSelector),this.$footerColumnToggle=o.find(this.settings.toggleSelector),this.bindEvents()}t.prototype.bindEvents=function(){var o=this;this.$footerColumnToggle.click(function(){return o.toggleFooterColumn(o.$footerColumn),o.closeOtherAccordions(o.$footerColumn.index()),!1})},t.prototype.closeOtherAccordions=function(o){var t=this,e=this.$footer.find(this.settings.footerColumnSelector),n=0;e.each(function(){n!==o&&t.closeFooterColumn(r(this)),n++})},t.prototype.toggleFooterColumn=function(o){o.hasClass("expanded")?this.closeFooterColumn(o):this.openFooterColumn(o)},t.prototype.openFooterColumn=function(o){var t=o.find(this.settings.contentContainerSelector).get(0).scrollHeight;o.addClass("expanded"),o.find(this.settings.contentSelector).height(t)},t.prototype.closeFooterColumn=function(o){o.removeClass("expanded"),o.find(this.settings.contentSelector).removeAttr("style")},r.fn.hereFooterColumn=t.jQueryInterface=function(){return this.each(function(){new t(r(this))})},o.behaviors.footerColumn={attach:function(o){r(".footer-column",o).once("footer-column").hereFooterColumn()}}}(jQuery,Drupal);;
+"use strict";!function(s,t){function e(t,e){this.defaultSettings={setShineSize:!1,classes:{backgroundElement:"cta-background",shineElement:"cta-background-shine",hoverFlag:"mouse-in"}},this.settings=s.extend(!0,this.defaultSettings,e||{}),this.$cta=t,this.$ctaBackground=t.find("."+this.settings.classes.backgroundElement),this.$window=s(window),this.bindMouseEvents()}e.prototype.bindMouseEvents=function(){this.shineAppendOnMouseEnter()},e.prototype.getShinePosition=function(t){return{left:t.clientX-this.$cta.offset().left+this.$window.scrollLeft(),top:t.clientY-this.$cta.offset().top+this.$window.scrollTop()}},e.prototype.getShineSize=function(){var t=2*this.$cta.width();return{width:t,paddingBottom:t}},e.prototype.shineAppendOnMouseEnter=function(){var n=this;this.$cta.on("mouseenter",function(t){var e;n.$cta.hasClass(n.settings.classes.hoverFlag)||(n.$cta.addClass(n.settings.classes.hoverFlag),e=s("<span>",{class:n.settings.classes.shineElement}).css(n.getShinePosition(t)).appendTo(n.$ctaBackground),n.settings.setShineSize&&e.css(n.getShineSize()),setTimeout(function(){e.remove()},1e3))}).on("mouseleave",function(){n.$cta.removeClass(n.settings.classes.hoverFlag)})},s.fn.hereCtaBackgroundShine=e.jQueryInterface=function(t){return this.each(function(){new e(s(this),t)})},t.behaviors.ctaBackgroundShine={attach:function(t){s(".cta--button, .cta--media",t).once("cta-animations").each(function(){s(this).hereCtaBackgroundShine()}),s(".cta--tertiary",t).once("cta-animations-tertiary").each(function(){s(this).hereCtaBackgroundShine({setShineSize:!0,classes:{backgroundElement:"cta-icon-background"}})})}}}(jQuery,Drupal);;
