@@ -1,0 +1,31 @@
+/**
+ * File with behaviors for marketo link preprocessing.
+ */
+
+(function ($, Drupal) {
+
+  'use strict';
+
+  /**
+   * Behavior for updating attributes in marketo links.
+   *
+   * Adds detailed_source to parameters with value of the current page.
+   */
+  Drupal.behaviors.updateMarketoLinksAttribute = {
+    attach: function (context) {
+      const self = this;
+      $('[data-bizible]', context).each(function () {
+        const $element = $(this);
+        const params = new URLSearchParams($element.attr('data-bizible'));
+        params.set('detailed_source', self.getDetailedSource());
+        $element.attr('data-bizible', params.toString());
+      });
+    },
+    getDetailedSource: function() {
+      const { hostname, pathname } = window.location;
+      return `${hostname}${pathname}`;
+    }
+  };
+
+})(jQuery, Drupal);
+;
